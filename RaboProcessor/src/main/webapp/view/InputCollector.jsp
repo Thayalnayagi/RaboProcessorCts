@@ -55,7 +55,7 @@ response.setHeader("Pragma", "No-cache");
             </form>
         </div>
         <form id="main-form" autocomplete="off" class="form-basic" method="post" enctype="multipart/form-data"
-                  action="/RaboProcessor/rest/autoResolve/xmlProcessor">
+                  action="/RaboProcessor/rest/autoResolve/processor">
                 <div class="form-row">
                     <label>
                         <span>Please Upload the file in xml format </span>
