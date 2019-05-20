@@ -5,18 +5,12 @@
  */
 package com.rabobank.raboprocessor;
 
+import com.rabobank.dto.RaboDto;
 import com.rabobank.utils.RaboUtility;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.util.HashMap;
-import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import org.springframework.http.HttpStatus;
 import org.json.JSONException;
-import org.json.XML;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
@@ -24,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
+import java.util.logging.Logger;
 
 /**
  *
@@ -33,81 +28,34 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping(value = "/autoResolve")
 public class RaboProcessor {
 
+    private final Logger LOGGER = Logger.getLogger(RaboProcessor.class.getName());
+
     @RequestMapping(value = "/processor", headers = ("content-type=multipart/*"),
             method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity process(@RequestParam("file") MultipartFile inputFile, HttpServletRequest request) throws IOException, JSONException {
-
+        RaboUtility util = new RaboUtility();
+        RaboDto raboDto = new RaboDto();
+        String fileType = null;
         String[] extensionArray = inputFile.getOriginalFilename().split("\\.");
         String extension = extensionArray.length > 0 ? extensionArray[1] : null;
 
-        if (inputFile.isEmpty() || !"csv".equalsIgnoreCase(extension)) {
+        // Validate INput FIle Format
+        if (inputFile.isEmpty() || "xml".equalsIgnoreCase(extension)) {
+            fileType = "xml";
+        } else if (inputFile.isEmpty() || "csv".equalsIgnoreCase(extension)) {
+            fileType = "csv";
+        }
+        else if (inputFile.isEmpty() || !"csv".equalsIgnoreCase(extension) || !"xml".equalsIgnoreCase(extension)) {
+            // If FIle format is not CSV or XML return back 
+            LOGGER.info("Invalid Input File.Please Upload Excel file with extension (.xlsx) or xml file with extension (.xml)");
             return new ResponseEntity("Invalid Input File.Please Upload Excel file with extension (.xlsx)", HttpStatus.OK);
         }
-
-        Map<String, String[]> failedTransactions = new HashMap<>();
-        Map<String, String[]> validTransactions = new HashMap<>();
-        RaboUtility rabo = new RaboUtility();
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(inputFile.getInputStream()))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                JSONObject transaction = new JSONObject();
-                String[] values = line.split(",");
-                if (values[0].contains("Reference")) {
-                    continue;
-                }
-                transaction = rabo.createJson(values);
-                String validate = rabo.validate(transaction, validTransactions);
-                if (null != validate && "balNotMatching".equalsIgnoreCase(validate)) {
-                    failedTransactions.put(transaction.getString("reference"), new String[]{transaction.getString("reference"), transaction.getString("description"), "Balance MisCalcualted"});
-                } else if (null != validate && "duplicateTransaction".equalsIgnoreCase(validate)) {
-                    failedTransactions.put(transaction.getString("reference"), new String[]{transaction.getString("reference"), transaction.getString("description"), "Duplicate Transaction"});
-                } else {
-                    validTransactions.put(transaction.getString("reference"), new String[]{transaction.getString("reference"), transaction.getString("description")});
-                }
-
-            }
-        }
-
-        return new ResponseEntity(rabo.formResponse(failedTransactions).toString(), HttpStatus.OK);
+        // Load data from input file to DTO
+        util.loadData(inputFile, raboDto, fileType);
+        // Validate the Data loaded in DTO
+        util.processData(raboDto);
+        return new ResponseEntity(util.formResponse(raboDto.getFailedTransactions()).toString(), HttpStatus.OK);
 
     }
 
-    @RequestMapping(value = "/xmlProcessor", headers = ("content-type=multipart/*"),
-            method = RequestMethod.POST, produces = MediaType.TEXT_HTML_VALUE)
-    public ResponseEntity processXml(@RequestParam("file") MultipartFile inputFile, HttpServletRequest request) throws IOException, JSONException {
-
-        String[] extensionArray = inputFile.getOriginalFilename().split("\\.");
-        String extension = extensionArray.length > 0 ? extensionArray[1] : null;
-
-        if (inputFile.isEmpty() || !"xml".equalsIgnoreCase(extension)) {
-            return new ResponseEntity("Invalid Input File.Please Upload Excel file with extension (.xlsx)", HttpStatus.OK);
-        }
-
-        Map<String, String[]> failedTransactions = new HashMap<>();
-        Map<String, String[]> validTransactions = new HashMap<>();
-        String data = new String(inputFile.getBytes());
-        JSONObject xmlJSONObj = XML.toJSONObject(data);
-        JSONObject jsnobject = new JSONObject(xmlJSONObj);
-        JSONArray jsonArray = null;
-        RaboUtility rabo = new RaboUtility();
-        System.out.println("" + jsnobject);
-        if (xmlJSONObj.getJSONObject("records").get("record") instanceof JSONObject) {
-            jsonArray = new JSONArray("[" + xmlJSONObj.getJSONObject("records").get("record").toString() + "]");
-        } else {
-            jsonArray = xmlJSONObj.getJSONObject("records").getJSONArray("record");
-        }
-        for (int i = 0; i < jsonArray.length(); i++) {
-            JSONObject transaction = jsonArray.getJSONObject(i);
-            String validate = rabo.validate(transaction, validTransactions);
-            if (null != validate && "balNotMatching".equalsIgnoreCase(validate)) {
-                    failedTransactions.put(transaction.getString("reference"), new String[]{transaction.getString("reference"), transaction.getString("description"), "Balance MisCalcualted"});
-                } else if (null != validate && "duplicateTransaction".equalsIgnoreCase(validate)) {
-                    failedTransactions.put(transaction.getString("reference"), new String[]{transaction.getString("reference"), transaction.getString("description"), "Duplicate Transaction"});
-                } else {
-                    validTransactions.put(transaction.getString("reference"), new String[]{transaction.getString("reference"), transaction.getString("description")});
-                }
-        }
-        return new ResponseEntity(rabo.formResponse(failedTransactions).toString(), HttpStatus.OK);
-
-    }
 }
